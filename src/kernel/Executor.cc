@@ -52,12 +52,6 @@ void ExecQueue::deinit()
 
 int Executor::init(size_t nthreads)
 {
-	if (nthreads == 0)
-	{
-		errno = EINVAL;
-		return -1;
-	}
-
 	this->thrdpool = thrdpool_create(nthreads, 0);
 	if (this->thrdpool)
 		return 0;
@@ -78,12 +72,16 @@ void Executor::executor_thread_routine(void *context)
 	ExecQueue *queue = (ExecQueue *)context;
 	struct ExecSessionEntry *entry;
 	ExecSession *session;
+	int empty;
 
-	pthread_mutex_lock(&queue->mutex);
 	entry = list_entry(queue->session_list.next, struct ExecSessionEntry, list);
+	pthread_mutex_lock(&queue->mutex);
 	list_del(&entry->list);
+	empty = list_empty(&queue->session_list);
+	pthread_mutex_unlock(&queue->mutex);
+
 	session = entry->session;
-	if (!list_empty(&queue->session_list))
+	if (!empty)
 	{
 		struct thrdpool_task task = {
 			.routine	=	Executor::executor_thread_routine,
@@ -94,7 +92,6 @@ void Executor::executor_thread_routine(void *context)
 	else
 		free(entry);
 
-	pthread_mutex_unlock(&queue->mutex);
 	session->execute();
 	session->handle(ES_STATE_FINISHED, 0);
 }
@@ -147,5 +144,15 @@ int Executor::request(ExecSession *session, ExecQueue *queue)
 	}
 
 	return -!entry;
+}
+
+int Executor::increase_thread()
+{
+	return thrdpool_increase(this->thrdpool);
+}
+
+int Executor::decrease_thread()
+{
+	return thrdpool_decrease(this->thrdpool);
 }
 
